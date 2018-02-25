@@ -10,98 +10,20 @@ if [[ $(basename -- $0) != $(basename -- ${BASH_SOURCE[0]}) ]]; then
 fi
 
 # Homebrew refuses to run as root
-[[ "$EUID" -eq 0 ]] && { echo "Running Homebrew as root is no longer supported!" >&2; exit 1; }
+[[ "$EUID" -eq 0 ]] && { echo "RUNNING AS ROOT! This is currently not supported!" >&2; exit 1; }
 
 # Clean up environment
 # Replace current process with `env -i` call
 [ -z "$STANDALONE_LINUXBREW_CLEAN_ENV" ] && exec env -i STANDALONE_LINUXBREW_CLEAN_ENV=1 HOME=$HOME TERM=$TERM bash --norc --noprofile "${BASH_SOURCE[0]}"
 
-# Deal with old bash shells where `read` builtin does not provide `-i` option
-# http://stackoverflow.com/questions/22634065/bash-read-command-does-not-accept-i-parameter-on-mac-any-alternatives/43007513#43007513
-function readinput() {
-local CLEAN_ARGS=""
-while [[ $# -gt 0 ]]; do
-  local i="$1"
-  case "$i" in
-    "-i")
-      if [[ ${BASH_VERSION:0:1} -ge 4 ]]; then
-        CLEAN_ARGS="$CLEAN_ARGS -i \"$2\""
-      fi
-      shift
-      shift
-      ;;
-    "-p")
-      CLEAN_ARGS="$CLEAN_ARGS -p \"$2\""
-      shift
-      shift
-      ;;
-    *)
-      CLEAN_ARGS="$CLEAN_ARGS $1"
-      shift
-      ;;
-  esac
-done
-eval read $CLEAN_ARGS
-}
+# Support old Bash shells. Use 'readinput' instead of 'read' below
+source readinput.sh
 
-# Deal with no "which". Needed by `Library/Homebrew/cmd/vendor-install.sh`
+# Support platforms with no "which". Needed by `Library/Homebrew/cmd/vendor-install.sh`
 [[ ! $(type -P which) ]] && { which () { type -P "$@"; }; export -f which; }
 
-# Function that is called upon completion/termination of the script
-function cleanup {
-  excode=$?
-  # let this function do its thing
-  trap 'echo "Just a sec!"' EXIT HUP INT QUIT PIPE TERM
- 
-  # If LINUXBREW is not set -- we have nothing to do!
-  [[ x"$LINUXBREW" == x ]] && { trap - EXIT; exit $excode; }
-  cd "$(dirname "$LINUXBREW")"
-  [[ -f master.zip ]] && /bin/rm -f master.zip
-  if [[ $excode -ne 0 ]]; then
-    echo ""
-    echo "Whooops! Looks like something has failed..."
-
-    if [[ -n "$LINUXBREW" && -d "$LINUXBREW" ]]; then
-      local REPLY=""
-      while [[ $REPLY != "y" && $REPLY != "n" ]]; do
-        readinput -p "Would you like to remove Linuxbrew from '$LINUXBREW'? ([y]/n) " REPLY
-        REPLY=${REPLY:-y}
-      done
-      if [[ $REPLY == "y" ]]; then
-        /bin/rm -rf "$LINUXBREW" || echo "Can not remove Linuxbrew ($LINUXBREW)" >&2;
-      fi
-    fi 
-
-    if [[ -n "$HOMEBREW_LOGS" && -d "$HOMEBREW_LOGS" ]]; then
-      local RMLOGS=""
-      while [[ $RMLOGS != "y" && $RMLOGS != "n" ]]; do
-        readinput -p "Would you like to remove Linuxbrew Logs from '$HOMEBREW_LOGS'? ([y]/n) " RMLOGS
-        RMLOGS=${RMLOGS:-y}
-      done
-      if [[ $RMLOGS == "y" ]]; then
-        /bin/rm -rf "$HOMEBREW_LOGS" || echo "Can not remove Linuxbrew logs ($HOMEBREW_LOGS)" >&2;
-      fi
-    fi
-
-    if [[ -n "$HOMEBREW_CACHE" && -d "$HOMEBREW_CACHE" ]]; then
-      local REPLY=""
-      while [[ $REPLY != "y" && $REPLY != "n" ]]; do
-        readinput -p "Would you like to remove Linuxbrew cache from '$HOMEBREW_CACHE'? ([y]/n) " REPLY
-        REPLY=${REPLY:-y}
-      done
-      if [[ $REPLY == "y" ]]; then
-        if [[ $RMLOGS == "y" ]]; then
-          /bin/rm -rf "$HOMEBREW_CACHE" || echo "Can not remove Linuxbrew cache ($HOMEBREW_CACHE)" >&2;
-        else
-          echo "hi :)" # TODO: Remove everything but the logs
-        fi
-      fi
-    fi
-  fi
-  trap - EXIT
-  echo "Sorry about that!"
-  exit $excode
-}
+# Function 'cleanup' is called upon completion/termination of the script
+source cleanup.sh
 trap cleanup EXIT HUP INT QUIT PIPE TERM
 
 # Clear the hash ;)
@@ -121,12 +43,12 @@ for var in $(compgen -A variable HOMEBREW); do unset $var; done
 export HOMEBREW_NO_ANALYTICS=1 # important
 export HOMEBREW_NO_AUTO_UPDATE=1 # important
 export HOMEBREW_ENV_FILTERING=1 # filter all user-defined env. vars
-export HOMEBREW_CURL="wget"
+# export HOMEBREW_CURL="wget"
 # export HOMEBREW_VERBOSE=1 # optional
 # export HOMEBREW_VERBOSE_USING_DOTS=1 # optional
 
 if [[ ! $(type -P wget) && ! $(type -P curl) ]]; then
-  echo "Fatal error! Need 'wget' or 'curl' to download Linuxbrew" >&2
+  echo "FATAL ERROR! Neither 'wget' nor 'curl' are available to download Linuxbrew" >&2
   exit 1;
 fi
 
@@ -246,7 +168,7 @@ $download https://github.com/Linuxbrew/brew/archive/master.zip || { echo "Failed
 #https://codeload.github.com/Linuxbrew/brew/zip/master
 
 # Some wget versions save master.zip to 'master'
-[[ -f "master" && $downloadtool == "wget" ]] && /bin/mv master master.zip 
+[[ -f "master" && $downloadtool == "wget" ]] && /bin/mv master master.zip
 [[ ! -f "master.zip" ]] && { echo "Could not find downloaded Linuxbrew zip archive" >&2; exit 1; }
 unzip -qq master.zip  || { echo "Failed while extracting Linuxbrew zip archive" >&2; exit 1; }
 /bin/rm -f master.zip || { echo "Failed to remove master.zip" >&2; exit 1; }
@@ -278,7 +200,7 @@ for tap in core versions xorg; do
   [[ -f master.zip ]] && { /bin/rm -f master.zip || { echo "Failed to delete master.zip" >&2; exit 1; }; }
   $download https://github.com/$organization/homebrew-$tap/archive/master.zip
   # Some wget versions save master.zip to 'master'
-  [[ -f "master" ]] && /bin/mv master master.zip 
+  [[ -f "master" ]] && /bin/mv master master.zip
   unzip -qq master.zip && /bin/rm -f master.zip || { echo "Failed to extract 'master.zip' in $TapDirectoryPrefix/$tap" >&2; exit 1; }
   /bin/mv homebrew-$tap-master homebrew-$tap
   mkdir homebrew-$tap/.git # Fool Homebrew into thinking that this is normal Git repo ;)
@@ -300,7 +222,7 @@ if [[ $(type -p wget) && ! $(type -p curl) ]]; then
       $download -O "$HOMEBREW_CACHE"/$formula.$suffix  $BINTRAY/$formula.$suffix
     else
       echo "hi :)"
-    fi 
+    fi
   done
 fi
 
@@ -314,7 +236,7 @@ if [[ ! $(which gcc >/dev/null) ]]; then
 fi
 brew install glibc || exit 1
 # brew reinstall binutils # seems not necessary any longer but keeping this line for later reconsideration
-brew install gcc # '--with-glibc' is the default if 'glibc' is installed 
+brew install gcc # '--with-glibc' is the default if 'glibc' is installed
 # get some coffee, crackers...
 /bin/rm -fv "$(brew --repo)/bin/gcc-$gccversion"
 /bin/rm -fv "$(brew --prefix binutils)/bin/gcc-$gccversion"
@@ -349,7 +271,7 @@ for tap in "" core versions xorg; do
   /bin/rm -rf ./temp/
   "$GIT" reset HEAD
   "$GIT" pull
-done 
+done
 
 brew update
 brew upgrade
@@ -367,7 +289,7 @@ unset HOMEBREW_NO_ANALYTICS
 unset HOMEBREW_ENV_FILTERING
 unset HOMEBREW_NO_AUTO_UPDATE
 
-### NO USER INPUT ABOVE 
+### NO USER INPUT ABOVE
 
 REPLY=""
 while [[ "$REPLY" != "y" && "$REPLY" != "n" ]]; do
